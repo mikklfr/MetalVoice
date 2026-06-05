@@ -55,9 +55,14 @@ struct ContentView: View {
                     .font(.caption)
                     .fontWeight(.medium)
                 Spacer()
-                // Meter
-                MeterView(level: audioModel.inputLevel)
-                    .frame(width: 100, height: 6)
+                // Meter - show selected pipeline's input level
+                if let pipeline = audioModel.selectedPipeline {
+                    MeterView(level: pipeline.inputLevel)
+                        .frame(width: 100, height: 6)
+                } else {
+                    MeterView(level: 0)
+                        .frame(width: 100, height: 6)
+                }
             }
             
             // Devices
