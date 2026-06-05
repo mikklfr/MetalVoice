@@ -61,29 +61,31 @@ struct ContentView: View {
             }
             
             // Devices
-            VStack(alignment: .leading, spacing: 10) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Label("Input Device", systemImage: "mic.fill")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    Picker("", selection: $audioModel.selectedInputDeviceID) {
-                        ForEach(audioModel.inputDevices, id: \.uniqueID) { device in
-                            Text(device.localizedName).tag(device.uniqueID)
+            if let pipeline = audioModel.selectedPipeline {
+                VStack(alignment: .leading, spacing: 10) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Label("Input Device", systemImage: "mic.fill")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Picker("", selection: $audioModel.selectedInputDeviceID) {
+                            ForEach(audioModel.inputDevices, id: \.uniqueID) { device in
+                                Text(device.localizedName).tag(device.uniqueID)
+                            }
                         }
+                        .labelsHidden()
                     }
-                    .labelsHidden()
-                }
-                
-                VStack(alignment: .leading, spacing: 4) {
-                    Label("Output Device", systemImage: "speaker.wave.2.fill")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    Picker("", selection: $audioModel.selectedOutputDeviceID) {
-                        ForEach(audioModel.outputDevices) { device in
-                            Text(device.name).tag(device.id)
+                    
+                    VStack(alignment: .leading, spacing: 4) {
+                        Label("Output Device", systemImage: "speaker.wave.2.fill")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Picker("", selection: $audioModel.selectedOutputDeviceID) {
+                            ForEach(audioModel.outputDevices) { device in
+                                Text(device.name).tag(device.id)
+                            }
                         }
+                        .labelsHidden()
                     }
-                    .labelsHidden()
                 }
             }
             

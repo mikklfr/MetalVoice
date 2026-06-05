@@ -6,16 +6,26 @@ import AudioToolbox
 import CoreAudio
 import Accelerate
 
-public class AudioModel: NSObject, ObservableObject, AVCaptureAudioDataOutputSampleBufferDelegate {
+public class AudioModel: NSObject, ObservableObject {
     // Published State for UI
     @Published public var isAIEnabled: Bool = false {
         didSet {
+            // Update all pipelines with the same state
+            for pipeline in pipelines {
+                pipeline.isEnabled = isAIEnabled
+            }
         }
     }
-    @Published public var inputDevices: [AVCaptureDevice] = [] // Changed to AVCaptureDevice
-    @Published public var selectedInputDeviceID: String = "" { // IDs are Strings in AVCapture
+    
+    @Published public var pipelines: [AudioPipeline] = []
+    @Published public var selectedPipelineID: UUID?
+    
+    @Published public var inputDevices: [AVCaptureDevice] = []
+    @Published public var selectedInputDeviceID: String = "" {
         didSet {
-             setupCaptureSession()
+            if let pipeline = selectedPipeline {
+                pipeline.selectedInputDeviceID = selectedInputDeviceID
+            }
         }
     }
     @Published public var errorMessage: String?
@@ -27,19 +37,25 @@ public class AudioModel: NSObject, ObservableObject, AVCaptureAudioDataOutputSam
     @Published public var outputDevices: [DeviceStruct] = []
     @Published public var selectedOutputDeviceID: AudioObjectID = 0 {
         didSet {
-             setupPlaybackEngine()
+            if let pipeline = selectedPipeline {
+                pipeline.selectedOutputDeviceID = selectedOutputDeviceID
+            }
         }
     }
     
     @Published public var isPlayingTestTone: Bool = false {
         didSet {
-            // No action needed, source node checks this flag
+            for pipeline in pipelines {
+                pipeline.isPlayingTestTone = isPlayingTestTone
+            }
         }
     }
     
     @Published public var outputGainValue: Float = 1.0 {
         didSet {
-             dspEngine.outputGain = outputGainValue
+            if let pipeline = selectedPipeline {
+                pipeline.outputGainValue = outputGainValue
+            }
         }
     }
 
@@ -48,76 +64,37 @@ public class AudioModel: NSObject, ObservableObject, AVCaptureAudioDataOutputSam
         public let name: String
     }
     
-    // Capture (Input)
-    private let captureSession = AVCaptureSession()
-    private let captureOutput = AVCaptureAudioDataOutput()
-    private let processingQueue = DispatchQueue(label: "audio.processing.queue", qos: .userInteractive)
-    
-    // Playback (Output)
-    private let engine = AVAudioEngine()
-    private var playbackSourceNode: AVAudioSourceNode! 
-    private var outputNode: AVAudioOutputNode { engine.outputNode }
-    private var mainMixer: AVAudioMixerNode { engine.mainMixerNode }
-    
-    // Buffering
-    private let ringBuffer = RingBuffer(capacity: 48000 * 5)
-    
-    // Processing Modules
-    // Processing Modules
-    private let dspEngine = DeepFilterNetDSP()
+    var selectedPipeline: AudioPipeline? {
+        if let id = selectedPipelineID {
+            return pipelines.first(where: { $0.id == id })
+        }
+        return pipelines.first
+    }
     
     public override init() {
         super.init()
         
-        let bufferRef = ringBuffer
-        let dsp = dspEngine
-        
-        playbackSourceNode = AVAudioSourceNode { [weak self] _, _, frameCount, audioBufferList -> OSStatus in
-            let abl = UnsafeMutableAudioBufferListPointer(audioBufferList)
-            guard let data = abl[0].mData?.assumingMemoryBound(to: Float.self) else { return noErr }
-            let count = Int(frameCount)
-            
-            // 1. Test Tone
-            if let self = self, self.isPlayingTestTone {
-                 for i in 0..<count {
-                     data[i] = Float.random(in: -0.1...0.1) 
-                 }
-                 return noErr
-            }
-            
-            // 2. Latency
-            let latencyTarget = 2400
-            let available = bufferRef.count
-            if available > (latencyTarget + count) {
-                bufferRef.drop(available - latencyTarget)
-            }
-            
-            // 3. Read
-            // DSP Engine needs contiguous flow. If we underflow, we feed silence.
-            if !bufferRef.read(into: data, count: count) {
-                AudioUtils.shared.fillSilence(data, count: count)
-                return noErr
-            }
-            
-            // 4. Processing
-            
-            // Gain (Boost Mic)
-            var gain: Float = 1.0
-            vDSP_vsmul(data, 1, &gain, data, 1, vDSP_Length(frameCount))
-            
-            if let self = self, self.isAIEnabled {
-                // DSP STFT Pipeline
-                dsp.process(input: data, count: count, output: data)
-            }
-            
-            return noErr
-        }
-        
         checkPermissions()
         fetchInputDevices()
         fetchOutputDevices()
-        setupCaptureSession()
-        setupPlaybackEngine()
+        
+        // Create first default pipeline
+        let pipeline = AudioPipeline(name: "Microphone")
+        pipelines.append(pipeline)
+        selectedPipelineID = pipeline.id
+        
+        // Set default devices
+        if let defaultDev = AVCaptureDevice.default(for: .audio) {
+            pipeline.selectedInputDeviceID = defaultDev.uniqueID
+        } else if let first = inputDevices.first {
+            pipeline.selectedInputDeviceID = first.uniqueID
+        }
+        
+        if let bh = outputDevices.first(where: { $0.name.contains("BlackHole") }) {
+            pipeline.selectedOutputDeviceID = bh.id
+        } else if let first = outputDevices.first {
+            pipeline.selectedOutputDeviceID = first.id
+        }
     }
     
     func fetchOutputDevices() {
@@ -146,56 +123,13 @@ public class AudioModel: NSObject, ObservableObject, AVCaptureAudioDataOutputSam
                 var nameAddr = AudioObjectPropertyAddress(mSelector: kAudioObjectPropertyName, mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
                 AudioObjectGetPropertyData(id, &nameAddr, 0, nil, &nameSize, &namePtr)
                 if let cf = namePtr?.takeRetainedValue() {
-                    newDevs.append(DeviceStruct(id: id, name: cf as String))
+                   newDevs.append(DeviceStruct(id: id, name: cf as String))
                 }
             }
         }
         
         DispatchQueue.main.async {
             self.outputDevices = newDevs
-            // Default to BlackHole if exists
-            if let bh = newDevs.first(where: { $0.name.contains("BlackHole") }) {
-                self.selectedOutputDeviceID = bh.id
-            } else if let first = newDevs.first {
-                self.selectedOutputDeviceID = first.id
-            }
-        }
-    }
-    
-    // ... input methods ...
-    
-    func setupPlaybackEngine() {
-        engine.stop()
-        engine.reset()
-        
-        // Output Device
-        if selectedOutputDeviceID != 0 {
-             var deviceID = selectedOutputDeviceID
-             let size = UInt32(MemoryLayout<AudioObjectID>.size)
-             AudioUnitSetProperty(outputNode.audioUnit!,
-                                  kAudioOutputUnitProperty_CurrentDevice,
-                                  kAudioUnitScope_Global,
-                                  0,
-                                  &deviceID,
-                                  size)
-             
-             // Update Name
-             if let dev = outputDevices.first(where: { $0.id == selectedOutputDeviceID }) {
-                 DispatchQueue.main.async { self.activeOutputDeviceName = dev.name }
-             }
-        }
-
-        // Attach Source
-        engine.attach(playbackSourceNode)
-        
-        // Connect
-        engine.connect(playbackSourceNode, to: mainMixer, format: AudioUtils.shared.processingFormat)
-        engine.connect(mainMixer, to: outputNode, format: nil)
-        
-        do {
-            try engine.start()
-        } catch {
-            print("Engine Error: \(error)")
         }
     }
     
@@ -214,151 +148,47 @@ public class AudioModel: NSObject, ObservableObject, AVCaptureAudioDataOutputSam
     }
     
     func fetchInputDevices() {
-        // AVCaptureDeviceDiscovery
-        let types: [AVCaptureDevice.DeviceType] = [.builtInMicrophone, .externalUnknown] // .externalUnknown covers USB mics usually
+        let types: [AVCaptureDevice.DeviceType] = [.builtInMicrophone, .externalUnknown]
         let session = AVCaptureDevice.DiscoverySession(deviceTypes: types, mediaType: .audio, position: .unspecified)
-        // Note: AVCaptureDevice doesn't easily show "Loopback" devices like BlackHole.
-        // But for "Microphone" input, that is what we want.
         
         var devs = session.devices
-        // Sort: Built-in first?
         devs.sort { $0.localizedName < $1.localizedName }
         
         DispatchQueue.main.async {
             self.inputDevices = devs
-            if let defaultDev = AVCaptureDevice.default(for: .audio) {
-                 self.selectedInputDeviceID = defaultDev.uniqueID
-            } else if let first = devs.first {
-                self.selectedInputDeviceID = first.uniqueID
-            }
         }
     }
     
-    func setupCaptureSession() {
-        captureSession.stopRunning()
-        captureSession.beginConfiguration()
-        captureSession.inputs.forEach { captureSession.removeInput($0) }
-        captureSession.outputs.forEach { captureSession.removeOutput($0) }
-        
-        do {
-            guard let device = AVCaptureDevice(uniqueID: selectedInputDeviceID) else {
-                print("Device not found: \(selectedInputDeviceID)")
-                captureSession.commitConfiguration()
-                return
-            }
-            
-            let input = try AVCaptureDeviceInput(device: device)
-            if captureSession.canAddInput(input) {
-                captureSession.addInput(input)
-            }
-            
-            if captureSession.canAddOutput(captureOutput) {
-                captureSession.addOutput(captureOutput)
-                captureOutput.setSampleBufferDelegate(self, queue: processingQueue)
-            }
-            
-        } catch {
-            print("Capture Setup Error: \(error)")
+    /// Add a new audio pipeline
+    public func addPipeline(name: String = "Pipeline") {
+        guard pipelines.count < 2 else {
+            errorMessage = "Maximum 2 pipelines supported"
+            return
         }
         
-        captureSession.commitConfiguration()
+        let pipeline = AudioPipeline(name: name)
         
-        DispatchQueue.global(qos: .userInitiated).async {
-            self.captureSession.startRunning()
+        // Use same output device as first pipeline if available
+        if let first = pipelines.first {
+            pipeline.selectedOutputDeviceID = first.selectedOutputDeviceID
+        }
+        
+        pipelines.append(pipeline)
+        selectedPipelineID = pipeline.id
+        pipeline.isEnabled = isAIEnabled
+    }
+    
+    /// Remove a pipeline by ID
+    public func removePipeline(id: UUID) {
+        pipelines.removeAll { $0.id == id }
+        if selectedPipelineID == id {
+            selectedPipelineID = pipelines.first?.id
         }
     }
-
     
-    private var PermissionCheckOnce = false
-    
-    // Converter State
-    private var inputConverter: AVAudioConverter?
-    private var inputPCMBuffer: AVAudioPCMBuffer?
-    private var inputBuffer48k: AVAudioPCMBuffer?
-    
-    public func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
-        // Converter state persists for continuous stream. No reset needed.
-        
-        guard let formatDescription = CMSampleBufferGetFormatDescription(sampleBuffer) else { return }
-        // Use AudioStreamBasicDescription to create AVAudioFormat
-        guard let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(formatDescription) else { return }
-        
-        // 1. Determine Input Format
-        guard let inputFormat = AVAudioFormat(streamDescription: asbd) else { return }
-        
-        // 2. Define Target Format (48kHz, Float32, Mono)
-        guard let targetFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 48000.0, channels: 1, interleaved: false) else { return }
-        
-        // 3. Setup Converter if needed
-        if inputConverter == nil || inputConverter?.inputFormat != inputFormat {
-             print("AudioModel: Initializing Converter \(inputFormat.sampleRate) -> 48000")
-             inputConverter = AVAudioConverter(from: inputFormat, to: targetFormat)
-            
-             // Create Buffers
-             let maxInputFrames = AVAudioFrameCount(4096)
-             inputPCMBuffer = AVAudioPCMBuffer(pcmFormat: inputFormat, frameCapacity: maxInputFrames)
-            
-             let ratio = targetFormat.sampleRate / inputFormat.sampleRate
-             let maxOutputFrames = AVAudioFrameCount(Double(maxInputFrames) * ratio + 5)
-             inputBuffer48k = AVAudioPCMBuffer(pcmFormat: targetFormat, frameCapacity: maxOutputFrames)
-        }
-        
-        guard let converter = inputConverter,
-              let inputBuffer = inputPCMBuffer,
-              let outputBuffer = inputBuffer48k else { return }
-              
-        // 4. Copy Data Directly to InputPCMBuffer
-        let numSamples = CMSampleBufferGetNumSamples(sampleBuffer)
-        inputBuffer.frameLength = AVAudioFrameCount(numSamples)
-        
-        let status = CMSampleBufferCopyPCMDataIntoAudioBufferList(
-            sampleBuffer,
-            at: 0,
-            frameCount: Int32(numSamples),
-            into: inputBuffer.mutableAudioBufferList
-        )
-        
-        guard status == noErr else { 
-            print("AudioModel Error: CMSampleBufferCopyPCMDataIntoAudioBufferList failed with \(status)")
-            return 
-        }
-        
-        // 6. Convert
-        var error: NSError? = nil
-        
-        // Input Block
-        var haveFed = false
-        let inputBlock: AVAudioConverterInputBlock = { _, outStatus in
-           if !haveFed {
-               outStatus.pointee = .haveData
-               haveFed = true
-               return inputBuffer
-           } else {
-               outStatus.pointee = .noDataNow
-               return nil
-           }
-        }
-        
-        outputBuffer.frameLength = outputBuffer.frameCapacity
-        converter.convert(to: outputBuffer, error: &error, withInputFrom: inputBlock)
-        
-        // 7. Write to Ring Buffer
-        let convertedFrames = Int(outputBuffer.frameLength)
-        
-        if convertedFrames > 0, let floatData = outputBuffer.floatChannelData?[0] {
-             // Metering (RMS)
-             var sum: Float = 0
-             // Sample every 4th visual
-             for i in stride(from: 0, to: min(convertedFrames, 256), by: 4) {
-                 sum += floatData[i] * floatData[i]
-             }
-             if convertedFrames > 0 {
-                 let rms = sqrt(sum / Float(min(convertedFrames, 256)/4 + 1))
-                 DispatchQueue.main.async { self.inputLevel = rms }
-             }
-             
-             // Push 48k Float32 to RingBuffer
-             _ = self.ringBuffer.write(floatData, count: convertedFrames)
-        }
+    /// Select a pipeline
+    public func selectPipeline(id: UUID) {
+        guard pipelines.contains(where: { $0.id == id }) else { return }
+        selectedPipelineID = id
     }
 }
