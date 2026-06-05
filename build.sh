@@ -50,6 +50,10 @@ check_requirements() {
     print_success "Swift $SWIFT_VERSION found"
     
     # Check for macOS
+    if [[ "$OSTYPE" != "darwin"* ]]; then
+        print_error "This project can only be built on macOS. You are running on $OSTYPE. Please build on a Mac with Apple Silicon (M1, M2, M3, or newer)."
+    fi
+    
     OS_VERSION=$(sw_vers -productVersion)
     MAJOR_VERSION=$(echo $OS_VERSION | cut -d. -f1)
     if [ "$MAJOR_VERSION" -lt 13 ]; then
@@ -58,10 +62,11 @@ check_requirements() {
     print_success "macOS $OS_VERSION (13.0+ required)"
     
     # Check for Apple Silicon
-    if [[ $(uname -m) != "arm64" ]]; then
-        print_error "This project requires Apple Silicon (M1, M2, M3, or newer). Intel Macs are not supported."
+    ARCH=$(uname -m)
+    if [[ "$ARCH" != "arm64" ]]; then
+        print_error "This project requires Apple Silicon (M1, M2, M3, or newer). You are running on $ARCH architecture, which is not supported."
     fi
-    print_success "Apple Silicon detected"
+    print_success "Apple Silicon detected ($ARCH)"
 }
 
 # Clean build artifacts
@@ -88,13 +93,22 @@ create_app_bundle() {
     mkdir -p "$APP_BUNDLE/Contents/MacOS"
     mkdir -p "$APP_BUNDLE/Contents/Resources"
     
-    # Copy executable
+    # Find the executable (it may be in a subdirectory like x86_64-apple-macosx or arm64-apple-macosx)
+    METALVOICE_EXEC=""
     if [ -f "$BUILD_DIR/MetalVoice" ]; then
-        cp "$BUILD_DIR/MetalVoice" "$APP_BUNDLE/Contents/MacOS/"
-        print_success "Copied MetalVoice executable"
+        METALVOICE_EXEC="$BUILD_DIR/MetalVoice"
     else
-        print_error "MetalVoice executable not found at $BUILD_DIR/MetalVoice"
+        # Try to find in architecture-specific subdirectories
+        METALVOICE_EXEC=$(find "$BUILD_DIR" -name "MetalVoice" -type f 2>/dev/null | head -1)
     fi
+    
+    if [ -z "$METALVOICE_EXEC" ] || [ ! -f "$METALVOICE_EXEC" ]; then
+        print_error "MetalVoice executable not found. Build may have failed. Checked: $BUILD_DIR"
+    fi
+    
+    # Copy executable
+    cp "$METALVOICE_EXEC" "$APP_BUNDLE/Contents/MacOS/"
+    print_success "Copied MetalVoice executable"
     
     # Copy Info.plist
     if [ -f "Resources/Info.plist" ]; then
@@ -147,13 +161,22 @@ sign_app_bundle() {
 export_cli() {
     print_header "Exporting MetalVoiceCLI"
     
+    # Find the executable (it may be in a subdirectory like x86_64-apple-macosx or arm64-apple-macosx)
+    METALVOICECLI_EXEC=""
     if [ -f "$BUILD_DIR/MetalVoiceCLI" ]; then
-        cp "$BUILD_DIR/MetalVoiceCLI" .
-        chmod +x MetalVoiceCLI
-        print_success "Exported MetalVoiceCLI to ./MetalVoiceCLI"
+        METALVOICECLI_EXEC="$BUILD_DIR/MetalVoiceCLI"
     else
-        print_error "MetalVoiceCLI executable not found at $BUILD_DIR/MetalVoiceCLI"
+        # Try to find in architecture-specific subdirectories
+        METALVOICECLI_EXEC=$(find "$BUILD_DIR" -name "MetalVoiceCLI" -type f 2>/dev/null | head -1)
     fi
+    
+    if [ -z "$METALVOICECLI_EXEC" ] || [ ! -f "$METALVOICECLI_EXEC" ]; then
+        print_error "MetalVoiceCLI executable not found. Build may have failed. Checked: $BUILD_DIR"
+    fi
+    
+    cp "$METALVOICECLI_EXEC" .
+    chmod +x MetalVoiceCLI
+    print_success "Exported MetalVoiceCLI to ./MetalVoiceCLI"
 }
 
 # Display final build summary
