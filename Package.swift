@@ -7,7 +7,8 @@ let package = Package(
         .macOS(.v13)
     ],
     products: [
-        .executable(name: "MetalVoice", targets: ["MetalVoice"])
+        .executable(name: "MetalVoice", targets: ["MetalVoice"]),
+        .executable(name: "MetalVoiceCLI", targets: ["MetalVoiceCLI"])
     ],
     dependencies: [],
     targets: [

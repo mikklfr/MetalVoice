@@ -81,8 +81,31 @@ clean() {
 # Build the Swift package
 build_package() {
     print_header "Building Swift Package ($BUILD_TYPE)"
-    swift build --configuration "$BUILD_TYPE" --product MetalVoice --product MetalVoiceCLI
+    swift build --configuration "$BUILD_TYPE"
     print_success "Swift package built successfully"
+}
+
+# Find executables built by Swift
+find_executable() {
+    local exe_name="$1"
+    local build_dir="$2"
+    
+    # Swift 5.5+ uses architecture-specific directories
+    # Try direct path first
+    if [ -f "$build_dir/$exe_name" ]; then
+        echo "$build_dir/$exe_name"
+        return 0
+    fi
+    
+    # Search in architecture-specific subdirectories (arm64-apple-macosx*, x86_64-apple-macosx*)
+    local found=$(find "$build_dir" -maxdepth 2 -name "$exe_name" -type f ! -path "*/.*" 2>/dev/null | head -1)
+    if [ -n "$found" ] && [ -f "$found" ]; then
+        echo "$found"
+        return 0
+    fi
+    
+    # If not found, return empty
+    return 1
 }
 
 # Create the macOS App bundle
@@ -93,20 +116,12 @@ create_app_bundle() {
     mkdir -p "$APP_BUNDLE/Contents/MacOS"
     mkdir -p "$APP_BUNDLE/Contents/Resources"
     
-    # Find the executable (it may be in a subdirectory like x86_64-apple-macosx or arm64-apple-macosx)
-    METALVOICE_EXEC=""
-    if [ -f "$BUILD_DIR/MetalVoice" ]; then
-        METALVOICE_EXEC="$BUILD_DIR/MetalVoice"
-    else
-        # Try to find in architecture-specific subdirectories
-        METALVOICE_EXEC=$(find "$BUILD_DIR" -name "MetalVoice" -type f 2>/dev/null | head -1)
-    fi
-    
+    # Find and copy MetalVoice executable
+    METALVOICE_EXEC=$(find_executable "MetalVoice" "$BUILD_DIR")
     if [ -z "$METALVOICE_EXEC" ] || [ ! -f "$METALVOICE_EXEC" ]; then
         print_error "MetalVoice executable not found. Build may have failed. Checked: $BUILD_DIR"
     fi
     
-    # Copy executable
     cp "$METALVOICE_EXEC" "$APP_BUNDLE/Contents/MacOS/"
     print_success "Copied MetalVoice executable"
     
@@ -161,15 +176,8 @@ sign_app_bundle() {
 export_cli() {
     print_header "Exporting MetalVoiceCLI"
     
-    # Find the executable (it may be in a subdirectory like x86_64-apple-macosx or arm64-apple-macosx)
-    METALVOICECLI_EXEC=""
-    if [ -f "$BUILD_DIR/MetalVoiceCLI" ]; then
-        METALVOICECLI_EXEC="$BUILD_DIR/MetalVoiceCLI"
-    else
-        # Try to find in architecture-specific subdirectories
-        METALVOICECLI_EXEC=$(find "$BUILD_DIR" -name "MetalVoiceCLI" -type f 2>/dev/null | head -1)
-    fi
-    
+    # Find MetalVoiceCLI executable
+    METALVOICECLI_EXEC=$(find_executable "MetalVoiceCLI" "$BUILD_DIR")
     if [ -z "$METALVOICECLI_EXEC" ] || [ ! -f "$METALVOICECLI_EXEC" ]; then
         print_error "MetalVoiceCLI executable not found. Build may have failed. Checked: $BUILD_DIR"
     fi
