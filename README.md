@@ -53,6 +53,8 @@
   <br>
 </div>
 
+### GUI - Single Pipeline (Default)
+
 1.  **Launch**: Look for the **Waveform Icon 🌊** in your menu bar.
 2.  **Select Input**: Click the gear ⚙️ icon. Set **Input Device** to your physical microphone.
 3.  **Select Output**: Set **Output Device** to a Virtual Audio Cable (Recommended: **[BlackHole 2ch](https://github.com/ExistentialAudio/BlackHole)**).
@@ -60,16 +62,43 @@
 4.  **Configure Apps**: inside Discord/Zoom/OBS, set your **Microphone Input** to that same Virtual Cable (e.g., BlackHole 2ch).
 5.  **Enable AI**: Toggle the switch **ON** in the MetalVoice menu. Enjoy crystal clear audio!
 
+### GUI - Dual Pipelines (Pro)
+
+Need to filter your microphone **AND** filter your colleagues' audio at the same time?
+
+1.  **Open Settings**: Click the gear ⚙️ icon and navigate to the **Pipelines** tab.
+2.  **Create Second Pipeline**: Click the **+** button to add a second pipeline.
+3.  **Configure First Pipeline**: 
+    *   Input: Your microphone (e.g., "Built-in Microphone")
+    *   Output: Virtual Cable (e.g., "BlackHole 2ch")
+4.  **Configure Second Pipeline**:
+    *   Input: Your incoming audio source (e.g., "Loopback Audio" or meeting app audio)
+    *   Output: Your speakers (e.g., "MacBook Pro Speakers")
+5.  **Enable Both**: Toggle the switch **ON** in both pipeline rows.
+6.  **Result**: Both input sources are now noise-filtered independently!
+
 ## 💻 Advanced: Dual Pipelines (CLI)
 
-Need to filter your microphone for your meeting, AND filter your colleagues' audio coming into your headphones? Use the included CLI:
+Need to filter your microphone for your meeting, AND filter your colleagues' audio coming into your headphones? Use the included CLI to run multiple independent pipelines:
 
 1. Copy `MetalVoiceCLI` from the zip to a convenient folder.
-2. Open Terminal. Run `MetalVoiceCLI` to list your available Input/Output device names.
-3. Open Terminal 1 (Clean Your Mic):
-   `./MetalVoiceCLI --in "Built-in Microphone" --out "BlackHole 2ch" --gain 1.0`
-4. Open Terminal 2 (Clean Your Meeting):
-   `./MetalVoiceCLI --in "Loopback Audio" --out "MacBook Pro Speakers" --gain 1.5`
+2. Open Terminal 1 (Clean Your Mic):
+   ```bash
+   ./MetalVoiceCLI --in "Built-in Microphone" --out "BlackHole 2ch" --name "Microphone" --gain 1.0
+   ```
+3. Open Terminal 2 (Clean Your Meeting):
+   ```bash
+   ./MetalVoiceCLI --in "Loopback Audio" --out "MacBook Pro Speakers" --name "Meeting Audio" --gain 1.5
+   ```
+
+Each terminal runs a completely independent AI pipeline with its own:
+- Input device selection
+- Output device selection
+- Noise suppression processing
+- Gain adjustment
+
+**Why use CLI for dual pipelines?** The CLI approach allows unlimited independent pipelines (2+ simultaneously), while the GUI supports up to 2 pipelines managed from one window.
+
 
 ## 💻 Tech Stack
 
