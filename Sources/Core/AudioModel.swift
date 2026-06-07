@@ -5,6 +5,7 @@ import Combine
 import AudioToolbox
 import CoreAudio
 import Accelerate
+import SwiftUI
 
 public class AudioModel: NSObject, ObservableObject {
     // Published State for UI
@@ -19,6 +20,7 @@ public class AudioModel: NSObject, ObservableObject {
     
     @Published public var pipelines: [AudioPipeline] = []
     @Published public var selectedPipelineID: UUID?
+    @Published public var refreshTrigger: UUID = UUID()
     
     @Published public var inputDevices: [AVCaptureDevice] = []
     @Published public var selectedInputDeviceID: String = "" {
@@ -64,7 +66,9 @@ public class AudioModel: NSObject, ObservableObject {
         public let name: String
     }
     
-    var selectedPipeline: AudioPipeline? {
+    private var refreshTimer: Timer?
+    
+    public var selectedPipeline: AudioPipeline? {
         if let id = selectedPipelineID {
             return pipelines.first(where: { $0.id == id })
         }
@@ -95,6 +99,22 @@ public class AudioModel: NSObject, ObservableObject {
         } else if let first = outputDevices.first {
             pipeline.selectedOutputDeviceID = first.id
         }
+        
+        // Start refresh timer to ensure UI updates properly
+        startRefreshTimer()
+    }
+    
+    private func startRefreshTimer() {
+        refreshTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+            DispatchQueue.main.async {
+                self?.refreshTrigger = UUID()
+            }
+        }
+    }
+    
+    deinit {
+        refreshTimer?.invalidate()
+        refreshTimer = nil
     }
     
     func fetchOutputDevices() {
@@ -190,5 +210,21 @@ public class AudioModel: NSObject, ObservableObject {
     public func selectPipeline(id: UUID) {
         guard pipelines.contains(where: { $0.id == id }) else { return }
         selectedPipelineID = id
+    }
+    
+    /// Binding to the selected pipeline's input device
+    public var selectedPipelineInputBinding: Binding<String> {
+        Binding<String>(
+            get: { self.selectedPipeline?.selectedInputDeviceID ?? "" },
+            set: { self.selectedPipeline?.selectedInputDeviceID = $0 }
+        )
+    }
+    
+    /// Binding to the selected pipeline's output device
+    public var selectedPipelineOutputBinding: Binding<AudioObjectID> {
+        Binding<AudioObjectID>(
+            get: { self.selectedPipeline?.selectedOutputDeviceID ?? 0 },
+            set: { self.selectedPipeline?.selectedOutputDeviceID = $0 }
+        )
     }
 }

@@ -46,33 +46,67 @@ struct ContentView: View {
             
             Divider()
             
-            // Status
-            HStack {
-                Circle()
-                    .fill(audioModel.isAIEnabled ? Color.green : Color.orange)
-                    .frame(width: 8, height: 8)
-                Text(audioModel.isAIEnabled ? "AI Active" : "Passthrough")
-                    .font(.caption)
-                    .fontWeight(.medium)
-                Spacer()
-                // Meter - show selected pipeline's input level
-                if let pipeline = audioModel.selectedPipeline {
-                    MeterView(level: pipeline.inputLevel)
-                        .frame(width: 100, height: 6)
-                } else {
-                    MeterView(level: 0)
-                        .frame(width: 100, height: 6)
+            // Status & Pipeline Section
+            VStack(alignment: .leading, spacing: 12) {
+                // Status with Live Indicator
+                HStack {
+                    Circle()
+                        .fill(audioModel.isAIEnabled ? Color.green : Color.orange)
+                        .frame(width: 8, height: 8)
+                    Text(audioModel.isAIEnabled ? "AI Active" : "Passthrough")
+                        .font(.caption)
+                        .fontWeight(.medium)
+                    Spacer()
+                    // Meter - show selected pipeline's input level
+                    if let pipeline = audioModel.selectedPipeline {
+                        MeterView(level: pipeline.inputLevel, refreshTrigger: audioModel.refreshTrigger)
+                            .frame(width: 100, height: 6)
+                    } else {
+                        MeterView(level: 0, refreshTrigger: audioModel.refreshTrigger)
+                            .frame(width: 100, height: 6)
+                    }
+                }
+                
+                // Pipeline Selector
+                if audioModel.pipelines.count > 0 {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Label("Pipeline", systemImage: "line.3.horizontal")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                            Spacer()
+                            if audioModel.pipelines.count < 2 {
+                                Button(action: {
+                                    audioModel.addPipeline(name: "Received Audio")
+                                }) {
+                                    Image(systemName: "plus.circle.fill")
+                                        .font(.caption)
+                                        .foregroundColor(.accentColor)
+                                }
+                                .buttonStyle(.plain)
+                                .help("Add a second pipeline")
+                            }
+                        }
+                        Picker("", selection: $audioModel.selectedPipelineID) {
+                            ForEach(audioModel.pipelines, id: \.id) { pipeline in
+                                Text(pipeline.name).tag(Optional(pipeline.id))
+                            }
+                        }
+                        .labelsHidden()
+                    }
                 }
             }
             
+            Divider()
+            
             // Devices
-            if let pipeline = audioModel.selectedPipeline {
+            if audioModel.selectedPipeline != nil {
                 VStack(alignment: .leading, spacing: 10) {
                     VStack(alignment: .leading, spacing: 4) {
                         Label("Input Device", systemImage: "mic.fill")
                             .font(.caption)
                             .foregroundColor(.secondary)
-                        Picker("", selection: $audioModel.selectedInputDeviceID) {
+                        Picker("", selection: audioModel.selectedPipelineInputBinding) {
                             ForEach(audioModel.inputDevices, id: \.uniqueID) { device in
                                 Text(device.localizedName).tag(device.uniqueID)
                             }
@@ -84,7 +118,7 @@ struct ContentView: View {
                         Label("Output Device", systemImage: "speaker.wave.2.fill")
                             .font(.caption)
                             .foregroundColor(.secondary)
-                        Picker("", selection: $audioModel.selectedOutputDeviceID) {
+                        Picker("", selection: audioModel.selectedPipelineOutputBinding) {
                             ForEach(audioModel.outputDevices) { device in
                                 Text(device.name).tag(device.id)
                             }
@@ -130,6 +164,7 @@ struct ContentView: View {
 
 struct MeterView: View {
     var level: Float
+    var refreshTrigger: UUID = UUID()
     
     var body: some View {
         GeometryReader { geometry in
@@ -144,6 +179,7 @@ struct MeterView: View {
                     .animation(.linear(duration: 0.1), value: level)
             }
         }
+        .id(refreshTrigger)
     }
 }
 

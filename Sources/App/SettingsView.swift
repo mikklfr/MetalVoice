@@ -3,19 +3,14 @@ import Core
 
 struct SettingsView: View {
     @ObservedObject var audioModel: AudioModel
-    
+     
     var body: some View {
         TabView {
             GeneralSettingsView(audioModel: audioModel)
                 .tabItem {
                     Label("General", systemImage: "slider.horizontal.3")
                 }
-            
-            PipelinesView(audioModel: audioModel)
-                .tabItem {
-                    Label("Pipelines", systemImage: "line.3.horizontal")
-                }
-            
+             
             GuideView()
                 .tabItem {
                     Label("Setup Guide", systemImage: "book.pages")
@@ -105,137 +100,6 @@ struct GeneralSettingsView: View {
                 Spacer()
             }
         }
-    }
-}
-
-// MARK: - Pipelines Tab
-struct PipelinesView: View {
-    @ObservedObject var audioModel: AudioModel
-    
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack {
-                Text("Audio Pipelines")
-                    .font(.headline)
-                Spacer()
-                
-                if audioModel.pipelines.count < 2 {
-                    Button(action: {
-                        audioModel.addPipeline(name: "Received Audio")
-                    }) {
-                        Image(systemName: "plus.circle.fill")
-                            .foregroundColor(.accentColor)
-                    }
-                    .buttonStyle(.plain)
-                    .help("Add a second pipeline for filtering received audio")
-                }
-            }
-            .padding(.bottom, 4)
-            
-            VStack(spacing: 12) {
-                ForEach(audioModel.pipelines, id: \.id) { pipeline in
-                    PipelineRow(
-                        pipeline: pipeline,
-                        audioModel: audioModel,
-                        isSelected: pipeline.id == audioModel.selectedPipelineID,
-                        onSelect: {
-                            audioModel.selectPipeline(id: pipeline.id)
-                        },
-                        onDelete: {
-                            if audioModel.pipelines.count > 1 {
-                                audioModel.removePipeline(id: pipeline.id)
-                            }
-                        }
-                    )
-                }
-            }
-            
-            Spacer()
-            
-            Text("You can configure up to 2 independent audio pipelines. Each pipeline can filter a different input/output combination.")
-                .font(.caption)
-                .foregroundColor(.secondary)
-        }
-    }
-}
-
-struct PipelineRow: View {
-    @ObservedObject var pipeline: AudioPipeline
-    @ObservedObject var audioModel: AudioModel
-    let isSelected: Bool
-    let onSelect: () -> Void
-    let onDelete: () -> Void
-    
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(pipeline.name)
-                        .font(.subheadline)
-                        .fontWeight(.semibold)
-                    
-                    let inputName = audioModel.inputDevices.first(where: { $0.uniqueID == pipeline.selectedInputDeviceID })?.localizedName ?? "Unknown"
-                    let outputName = audioModel.outputDevices.first(where: { $0.id == pipeline.selectedOutputDeviceID })?.name ?? "Unknown"
-                    
-                    Text("\(inputName) → \(outputName)")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-                
-                Spacer()
-                
-                VStack(spacing: 8) {
-                    Toggle("", isOn: $pipeline.isEnabled)
-                        .toggleStyle(.switch)
-                    
-                    if audioModel.pipelines.count > 1 {
-                        Button(action: onDelete) {
-                            Image(systemName: "trash.fill")
-                                .font(.caption)
-                                .foregroundColor(.red)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-            }
-            
-            if isSelected {
-                Divider()
-                
-                VStack(alignment: .leading, spacing: 8) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Label("Input Device", systemImage: "mic.fill")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                        Picker("", selection: $pipeline.selectedInputDeviceID) {
-                            ForEach(audioModel.inputDevices, id: \.uniqueID) { device in
-                                Text(device.localizedName).tag(device.uniqueID)
-                            }
-                        }
-                        .labelsHidden()
-                    }
-                    
-                    VStack(alignment: .leading, spacing: 4) {
-                        Label("Output Device", systemImage: "speaker.wave.2.fill")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                        Picker("", selection: $pipeline.selectedOutputDeviceID) {
-                            ForEach(audioModel.outputDevices) { device in
-                                Text(device.name).tag(device.id)
-                            }
-                        }
-                        .labelsHidden()
-                    }
-                }
-                .padding(8)
-                .background(Color.gray.opacity(0.1))
-                .cornerRadius(6)
-            }
-        }
-        .padding()
-        .background(isSelected ? Color.accentColor.opacity(0.1) : Color(nsColor: .controlBackgroundColor))
-        .cornerRadius(8)
-        .onTapGesture(perform: onSelect)
     }
 }
 
